@@ -105,6 +105,7 @@ browsers = list(get_browsers())
 
 count = 0
 data = list()
+data_obj = dict()
 for browser in browsers:
     hasPath = os.path.exists(browser['data_dir'])
     if not hasPath:
@@ -113,13 +114,10 @@ for browser in browsers:
     info_cache = get_state(local_state_path)
     for (i, key) in enumerate(info_cache.keys()):
         extensions_path = Path(browser['data_dir'], key, 'Extensions')
-        # print(extensions_path)
         if not os.path.exists(extensions_path):
             continue
-        print(extensions_path)
         for root, dirs, files in os.walk(extensions_path, topdown=False):
             for name in files:
-
                 if name == 'manifest.json':
                     ext_info = get_ext(os.path.join(root, 'manifest.json'))
                     icons = None
@@ -136,7 +134,8 @@ for browser in browsers:
                     if icons is not None:
                         count += 1
                         icon_path = list(icons.items())[0]
-                        icon = Path(root, os.path.normpath(icon_path[1]))
+                        path = icon_path[1][1:] if icon_path[1].startswith('/') else icon_path[1]
+                        icon = Path(root, os.path.normpath(path))
                         id = os.path.normpath(root).split(os.sep)[-2]
                         obj = {
                             "icon": icon,
