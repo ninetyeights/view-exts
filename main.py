@@ -11,11 +11,22 @@ customtkinter.set_appearance_mode("Light")
 customtkinter.set_default_color_theme("blue")
 
 app = customtkinter.CTk(fg_color='#fff')
-app.geometry("920x850")
+app.geometry("930x850")
 app.title('查看浏览器插件')
 
 scroll_frame = customtkinter.CTkScrollableFrame(app, width=920, height=850, fg_color="#fff")
 scroll_frame.pack()
+
+_label = customtkinter.CTkLabel(scroll_frame, text='正在加载数据中...').grid(row=0, column=0)
+
+count = 0
+exclude = ['ghbmnnjooekpmoecnnnilnnbdlolhkhi', 'nmmhkkegccagdldgiimedpiccmgmieda']
+data = list()
+data_obj = {
+    "Google Chrome": {},
+    "Microsoft Edge": {},
+    "Brave": {},
+}
 
 
 def get_browsers():
@@ -101,11 +112,49 @@ def get_ext(_path):
         return json.loads(fp.read())
 
 
+def update_date(_path, key, browser, _id=None):
+    global data_obj
+    for root, dirs, files in os.walk(_path, topdown=False):
+        for name in files:
+            if name == 'manifest.json':
+                ext_info = get_ext(os.path.join(root, 'manifest.json'))
+
+                icons = None
+                try:
+                    icons = ext_info['browser_action']['default_icon']
+                except:
+                    pass
+
+                try:
+                    icons = ext_info['icons']
+                except:
+                    pass
+
+                if icons is not None:
+                    global count
+                    count += 1
+                    icon_path = list(icons.items())[0]
+                    path = icon_path[1][1:] if icon_path[1].startswith('/') else icon_path[1]
+                    icon = Path(root, os.path.normpath(path))
+                    id = _id or os.path.normpath(root).split(os.sep)[-2]
+                    # profile = dict()
+                    # profile[browser['app_name'].replace(' ', '_')] = [key]
+                    obj = {
+                        "icon": icon,
+                        "profile": [key],
+                        "browser": browser['app_name'],
+                        "id": id,
+                        "name": ext_info['name']
+                    }
+                    data.append(obj)
+                    if id not in data_obj[browser['app_name']]:
+                        data_obj[browser['app_name']][id] = obj
+                    else:
+                        data_obj[browser['app_name']][id]['profile'].append(key)
+
+
 browsers = list(get_browsers())
 
-count = 0
-data = list()
-data_obj = dict()
 for browser in browsers:
     hasPath = os.path.exists(browser['data_dir'])
     if not hasPath:
@@ -113,37 +162,26 @@ for browser in browsers:
     local_state_path = Path(browser['data_dir'], 'Local State')
     info_cache = get_state(local_state_path)
     for (i, key) in enumerate(info_cache.keys()):
-        extensions_path = Path(browser['data_dir'], key, 'Extensions')
-        if not os.path.exists(extensions_path):
-            continue
-        for root, dirs, files in os.walk(extensions_path, topdown=False):
-            for name in files:
-                if name == 'manifest.json':
-                    ext_info = get_ext(os.path.join(root, 'manifest.json'))
-                    icons = None
+        try:
+            update_date(Path(browser['data_dir'], key, 'Extensions'), key, browser)
+        except:
+            pass
+
+        try:
+            with open(Path(browser['data_dir'], key, 'Preferences'), 'r', encoding='utf-8') as fp:
+                obj = json.loads(fp.read())['extensions']['settings']
+                for id, value in obj.items():
                     try:
-                        icons = ext_info['browser_action']['default_icon']
+                        _path = value['path']
                     except:
                         pass
+                    if not os.path.isabs(_path):
+                        _path = Path(browser['data_dir'], key, 'Extensions', _path)
+                    if os.path.exists(_path) and id not in exclude:
+                        update_date(_path, key, browser, id)
+        except:
+            pass
 
-                    try:
-                        icons = ext_info['icons']
-                    except:
-                        pass
-
-                    if icons is not None:
-                        count += 1
-                        icon_path = list(icons.items())[0]
-                        path = icon_path[1][1:] if icon_path[1].startswith('/') else icon_path[1]
-                        icon = Path(root, os.path.normpath(path))
-                        id = os.path.normpath(root).split(os.sep)[-2]
-                        obj = {
-                            "icon": icon,
-                            "profile": key,
-                            "browser": browser['app_name'],
-                            "id": id
-                        }
-                        data.append(obj)
 
 
 def chunk(list, size):
@@ -151,36 +189,71 @@ def chunk(list, size):
         yield list[i:i + size]
 
 
-def click(b, p, id):
+def se_click(b, p):
+    if b == 'Google Chrome':
+        name = 'chrome.exe'
+    elif b == 'Microsoft Edge':
+        name = 'msedge.exe'
+    else:
+        name = 'brave.exe'
+    subprocess.Popen(f'start {name} --profile-directory="{p}"', shell=True)
+
+
+def click(item):
     # print(b, p, id)
     if platform == 'darwin':
         subprocess.Popen('')
     else:
-        name = ''
-        # print(b)
-        if b == 'Google Chrome':
-            name = 'chrome.exe'
-        elif b == 'Microsoft Edge':
-            name = 'msedge.exe'
-        else:
-            name = 'brave.exe'
-        # print(f'start {name} --profile-directory="{p}" "chrome://extensions/?id={id}"')
-        subprocess.Popen(f'start {name} --profile-directory="{p}"', shell=True)
+        second = customtkinter.CTkToplevel(app)
+        second.geometry('300x600')
+        second.title(item['name'])
+        second.deiconify()
 
-
-chunk_data = list(chunk(data, 5))
-for row in chunk_data:
-    frame = customtkinter.CTkFrame(master=scroll_frame, fg_color="#fff")
-    for (i, item) in enumerate(row):
         image = customtkinter.CTkImage(Image.open(item['icon']), size=(48, 48))
-        image_button = customtkinter.CTkButton(master=frame,
-                                               fg_color="#f1f5f9",
-                                               hover_color="#bae6fd",
-                                               text_color="#000",
-                                               text=item['browser'] + '\n' + item['profile'],
-                                               image=image, command=lambda b=item['browser'], p=item['profile'],
-                                                                           id=item['id']: click(b, p, id))
-        image_button.grid(row=0, column=i, padx=8, pady=8)
-    frame.grid()
+        btn = customtkinter.CTkButton(master=second,
+                                      width=280,
+                                      fg_color="#f1f5f9",
+                                      hover_color="#bae6fd",
+                                      text_color="#000",
+                                      image=image,
+                                      text=item['name'])
+        btn.grid(row=0, column=0)
+
+        ss_frame = customtkinter.CTkScrollableFrame(second, width=280, height=600, fg_color='#fff')
+        ss_frame.grid(row=1, column=0)
+        for profile in item['profile']:
+            button = customtkinter.CTkButton(master=ss_frame,
+                                             width=300,
+                                             height=32,
+                                             fg_color="#f1f5f9",
+                                             hover_color="#bae6fd",
+                                             text_color="#000",
+                                             text=profile,
+                                             command=lambda b=item['browser'], p=profile: se_click(b, p)
+                                             )
+            button.grid(pady=4)
+
+
+for row_index, info in enumerate(data_obj.values()):
+    chunk_data = list(chunk(list(info.values()), 5))
+    top_frame = customtkinter.CTkFrame(master=scroll_frame, fg_color="#fff", width=920, height=64)
+    for key, row in enumerate(chunk_data):
+        frame = customtkinter.CTkFrame(master=top_frame, fg_color="#fff", width=920, height=64)
+        for (i, item) in enumerate(row):
+            image = customtkinter.CTkImage(Image.open(item['icon']), size=(48, 48))
+            image_button = customtkinter.CTkButton(master=frame,
+                                                   width=180,
+                                                   height=48,
+                                                   fg_color="#f1f5f9",
+                                                   hover_color="#bae6fd",
+                                                   text_color="#000",
+                                                   text=item['name'] + '\n' + item['browser'],
+                                                   image=image,
+                                                   command=lambda item=item: click(item),
+                                                   anchor='w'
+                                                   )
+            image_button.place(x=i * 180, y=0, relx=0, rely=0)
+        frame.grid(row=row_index+key, column=0)
+    top_frame.grid(row=row_index)
 
 app.mainloop()
